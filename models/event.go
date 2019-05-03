@@ -31,6 +31,7 @@ type Event struct {
 	Origin      int64     `json:"origin" codec:"origin,omitempty"`     // Origin is a timestamp that can communicate the time of the original reading, prior to event creation
 	Readings    []Reading `json:"readings" codec:"readings,omitempty"` // Readings will contain zero to many entries for the associated readings of a given event.
 	isValidated bool      // internal member used for validation check
+	checksum    string    // internal member
 }
 
 func encodeAsCBOR(e Event) ([]byte, error) {

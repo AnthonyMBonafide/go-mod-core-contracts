@@ -5,5 +5,5 @@ require (
 	github.com/go-logfmt/logfmt v0.4.0 // indirect
 	github.com/google/uuid v1.1.0
 	github.com/stretchr/testify v1.3.0
-	github.com/ugorji/go v1.1.4 // indirect
+	github.com/ugorji/go v1.1.4
 )

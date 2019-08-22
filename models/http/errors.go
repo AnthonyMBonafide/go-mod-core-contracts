@@ -18,14 +18,11 @@ package http
 
 import (
 	"encoding/json"
-	"net/http"
-	"strings"
-
-	"github.com/edgexfoundry/go-mod-core-contracts/clients/types"
 	"github.com/edgexfoundry/go-mod-core-contracts/models"
+	"net/http"
 )
 
-var HttpReponseMap = map[string]int{
+var HttpReponseMap = map[models.Code]int{
 	models.KindDatabaseError:           http.StatusInternalServerError,
 	models.KindServerError:             http.StatusInternalServerError,
 	models.KindCommunicationError:      http.StatusInternalServerError,
@@ -34,39 +31,20 @@ var HttpReponseMap = map[string]int{
 	models.KindLimitExceeded:           http.StatusRequestEntityTooLarge,
 }
 
-func ToHttpResponse(e models.EdgexError, w http.ResponseWriter, decoder func(interface{}) ([]byte, error)) error {
+func ToHttpResponse(e error, w http.ResponseWriter) {
 	// TODO(Anthony) handle situations where `e` does not have a Kind specified.
-	b, err := decoder(e)
-	statusCode, ok := HttpReponseMap[e.Kind()]
-	if !ok || err != nil {
+	kind := models.Kind(e)
+
+	statusCode, ok := HttpReponseMap[kind]
+	if !ok {
 		// Treat the error as it were a 500 since we cannot determine the category.
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.WriteHeader(statusCode)
 
 	}
-
-	_, err = w.Write(b)
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 func JsonDecoder(e interface{}) ([]byte, error) {
 	return json.Marshal(e)
-}
-
-// FromServiceClientError constructs a *CommonEdgexError from a *ErrServiceClient.
-func FromServiceClientError(esc *types.ErrServiceClient) *models.CommonEdgexError {
-	body := strings.Split(esc.Error(), "-")
-
-	var e models.CommonEdgexError
-	err := json.Unmarshal([]byte(body[1]), &e)
-	if err != nil {
-		return models.NewCommonEdgexError([]string{"FromServiceClientError"}, models.KindServerError, err.Error())
-	}
-	return &e
-
 }

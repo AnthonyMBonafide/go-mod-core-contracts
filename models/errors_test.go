@@ -14,7 +14,9 @@
 
 package models
 
-import "testing"
+import (
+	"testing"
+)
 
 func checkValidationError(err error, expectError bool, testName string, t *testing.T) {
 	if err != nil {

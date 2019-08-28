@@ -18,11 +18,15 @@ package http
 
 import (
 	"encoding/json"
-	"github.com/edgexfoundry/go-mod-core-contracts/models"
+	"errors"
 	"net/http"
+	"strings"
+
+	"github.com/edgexfoundry/go-mod-core-contracts/clients/types"
+	"github.com/edgexfoundry/go-mod-core-contracts/models"
 )
 
-var HttpReponseMap = map[models.Code]int{
+var ResponseMap = map[models.Code]int{
 	models.KindDatabaseError:           http.StatusInternalServerError,
 	models.KindServerError:             http.StatusInternalServerError,
 	models.KindCommunicationError:      http.StatusInternalServerError,
@@ -31,20 +35,56 @@ var HttpReponseMap = map[models.Code]int{
 	models.KindLimitExceeded:           http.StatusRequestEntityTooLarge,
 }
 
-func ToHttpResponse(e error, w http.ResponseWriter) {
-	// TODO(Anthony) handle situations where `e` does not have a Kind specified.
-	kind := models.Kind(e)
+// ToHttpResponse determines the correct HTTP response code for the given error and responds to the HTTP request.
+// The decoder argument is a function which marshals an object to the desired media type(i.e. JSON, CBOR, XML, etc).
+// This makes this higher-order function more flexible as it can handle responding to an HTTP request with any content
+// type.
+func ToHttpResponse(e error, w http.ResponseWriter, decoder func(interface{}) ([]byte, error)) {
+	var ce models.CommonEdgexError
+	ok := errors.As(e, &ce)
 
-	statusCode, ok := HttpReponseMap[kind]
+	// Not an EdgeX error nor does not contain an EdgeX error in the chain.
 	if !ok {
 		// Treat the error as it were a 500 since we cannot determine the category.
 		w.WriteHeader(http.StatusInternalServerError)
-	} else {
-		w.WriteHeader(statusCode)
+		message, err := decoder(e)
+		if err != nil {
+			_, _ = w.Write(message)
+			return
+		} else {
+			// TODO(Anthony) make this into a valid content type.
+			_, _ = w.Write([]byte("Unknown error"))
+		}
+	}
 
+	statusCode, ok := ResponseMap[ce.Kind]
+	message, err := decoder(ce)
+	w.WriteHeader(statusCode)
+
+	if err != nil {
+		// TODO(Anthony) make this into a valid content type.
+		_, _ = w.Write([]byte("Unable to process error"))
+	} else {
+		_, _ = w.Write(message)
 	}
 }
 
+// JsonDecoder marshals an object into a byte slice.
+// This is a convenience function which can be used as an argument to the higher-order function 'ToHttpResponse' as a
+// decoder.
 func JsonDecoder(e interface{}) ([]byte, error) {
 	return json.Marshal(e)
+}
+
+// FromServiceClientError constructs a *CommonEdgexError from a *ErrServiceClient.
+func FromServiceClientError(esc *types.ErrServiceClient) models.EdgexError {
+	body := strings.Split(esc.Error(), "-")
+
+	var e models.CommonEdgexError
+	err := json.Unmarshal([]byte(body[1]), &e)
+	if err != nil {
+		return models.NewCommonEdgexError(models.KindServerError, "Client error", err)
+	}
+
+	return e
 }

@@ -14,6 +14,12 @@
 
 package models
 
+import (
+	"errors"
+	"fmt"
+	"runtime"
+)
+
 // ErrContractInvalid is a specific error type for handling model validation failures. Type checking within
 // the calling application will facilitate more explicit error handling whereby it's clear that validation
 // has failed as opposed to something unexpected happening.
@@ -31,10 +37,11 @@ func (e ErrContractInvalid) Error() string {
 	return e.errMsg
 }
 
+// Code a categorical identifier used to give high-level insight as to the error type.
 type Code string
 
 const (
-	// TODO(Anthony) should this be a Kind as it can leak harmful information to the client about the system?
+	// Constant Kind identifiers which can be used to label and group errors.
 	KindUnknown                 Code = "Unknown"
 	KindDatabaseError           Code = "Database"
 	KindCommunicationError      Code = "Communication"
@@ -44,72 +51,87 @@ const (
 	KindLimitExceeded           Code = "LimitExceeded"
 )
 
-// TODO(Anthony) see if we can leverage the error wrapping functionality in Go 1.13
-// TODO(Anthony) see how we can easily incorporate this into EdgeX, possibly update pre-existing error types so that
-//   the implement these methods and can be returned as an EdgexError type.
-// TODO(Anthony) update to work with the sem-structured logging currently in place.
+// EdgexError provides an abstraction for all internal EdgeX errors.
+// This exists so that we can use this type in our method signatures and return nil which will fit better with the way
+// the Go builtin errors are normally handled.
+type EdgexError interface {
+	// Error obtains the error message associated with the error.
+	Error() string
+}
 
+// TODO(Anthony) update to work with the sem-structured logging currently in place.
 // CommonEdgexError generalizes an error structure which can be used for any type of EdgeX error.
 type CommonEdgexError struct {
-	// ops contains a FIFO list of operations affected by the error.
-	op string // This is omitted from marshaling for security reasons. We do not want to inform the client about any implementation details.
+	op string
 	// Category contains information regarding the high level error type.
-	Kind Code `json:"category"`
-	// Message contains detailed information about the error. Security sensitive information should NOT be contained
-	// here as the EdgexError struct is meant to absract the details of the error in a generalized fashion. This means
-	// that EdgexErrors which are passed to calling functions could be either logged or marshaled and sent to the
-	// client.
-	Err     error
+	Kind Code `json:"kind"`
+	// Message contains detailed information about the error.
+	Message string `json:"message"`
+	// err is a nested error which is used to form a chain of errors for better context.
+	err error
 }
 
-func Ops(ce CommonEdgexError) []string {
-	res := []string{ce.op}
-
-	subErr, ok := ce.Err.(CommonEdgexError)
-	if !ok {
-		return res
-	}
-
-	// recursively return Ops as long as we have CommonEdgexErrors to work through
-	res = append(res, Ops(subErr)...)
-
-	return res
-}
-
+// Kind determines the Kind associated with an error by inspecting the chain of errors. The top-most matching Kind is
+// returned or KinkUnknown if no Kind can be determined.
 func Kind(err error) Code {
-	e, ok := err.(CommonEdgexError)
-	if !ok {
+	var e CommonEdgexError
+	if !errors.As(err, &e) {
 		return KindUnknown
 	}
 
-	// We want to return the first "Kind" we see that isn't Unknown, because
-	// the higher in the stack the Kind was specified the more context we had.
-	if e.Kind != KindUnknown {
-		return e.Kind
-	}
-
-	return Kind(e.Err)
+	return e.Kind
 }
 
+// Error creates an error message taking all nested and wrapped errors into account.
 func (ce CommonEdgexError) Error() string {
-	return ce.Err.Error()
+	if ce.err == nil {
+		return ce.Message
+	}
+
+	// ce.err.Error functionality gets the error message of the nested error and which will handle both CommonEdgexError
+	// types and Go standard errors(both wrapped and non-wrapped).
+	return ce.op + " " + ce.Message + ": " + ce.err.Error()
+}
+
+// Unwrap retrieves the next nested error in the wrapped error chain.
+// This is used by the new wrapping and unwrapping features available in Go 1.13 and aids in traversing the error chain
+// of wrapped errors.
+func (ce CommonEdgexError) Unwrap() error {
+	return ce.err
+}
+
+// Is determines if an error is of type CommonEdgexError.
+// This is used by the new wrapping and unwrapping features available in Go 1.13 and aids the errors.Is function when
+// determining is an error or any error in the wrapped chain contains an error of a particular type.
+func (ce CommonEdgexError) Is(err error) bool {
+	switch err.(type) {
+	case CommonEdgexError:
+		return true
+	default:
+		return false
+
+	}
 }
 
 // NewCommonEdgexError creates a new CommonEdgexError with the information provided.
-func NewCommonEdgexError(args ...interface{}) CommonEdgexError {
-	e := CommonEdgexError{Kind: KindUnknown}
-	for _, arg := range args {
-		switch arg := arg.(type) {
-		case string:
-			e.op = arg
-		case Code:
-			e.Kind = arg
-		case error:
-			e.Err = arg
-		default:
-			panic("bad call to E")
-		}
+func NewCommonEdgexError(kind Code, message string, wrappedError error) CommonEdgexError {
+	return CommonEdgexError{
+		Kind:    kind,
+		op:      addCallerInformation(),
+		Message: message,
+		err:     wrappedError,
 	}
+}
 
-	return e
+// addCallerInformation generates information about the caller function. This function skips the caller which has
+// invoked this function, but rather introspects the calling function 3 frames below this frame in the call stack. This
+// function is a helper function which eliminates the need for the 'op' field in the `CommonEdgexError` type and
+// providing an 'op' string when creating an 'CommonEdgexError'
+func addCallerInformation() string {
+	pc := make([]uintptr, 10)
+	runtime.Callers(3, pc)
+	f := runtime.FuncForPC(pc[0])
+	file, line := f.FileLine(pc[0])
+	// TODO(Anthony) Come up with a better structure as this is too long
+	return fmt.Sprintf("[%s]-%s(line %d)\n", file, f.Name(), line)
 }

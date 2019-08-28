@@ -7,3 +7,5 @@ require (
 	github.com/stretchr/testify v1.3.0
 	github.com/ugorji/go v1.1.4
 )
+
+go 1.13

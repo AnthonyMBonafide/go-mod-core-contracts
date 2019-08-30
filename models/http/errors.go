@@ -27,6 +27,7 @@ import (
 )
 
 var ResponseMap = map[models.Code]int{
+	models.KindUnknown:                 http.StatusInternalServerError,
 	models.KindDatabaseError:           http.StatusInternalServerError,
 	models.KindServerError:             http.StatusInternalServerError,
 	models.KindCommunicationError:      http.StatusInternalServerError,
@@ -40,6 +41,8 @@ var ResponseMap = map[models.Code]int{
 // This makes this higher-order function more flexible as it can handle responding to an HTTP request with any content
 // type.
 func ToHttpResponse(e error, w http.ResponseWriter, decoder func(interface{}) ([]byte, error)) {
+	kind := Kind(e)
+
 	var ce models.CommonEdgexError
 	ok := errors.As(e, &ce)
 
@@ -57,7 +60,7 @@ func ToHttpResponse(e error, w http.ResponseWriter, decoder func(interface{}) ([
 		}
 	}
 
-	statusCode, ok := ResponseMap[ce.Kind]
+	statusCode, ok := ResponseMap[models.Kind(ce)]
 	message, err := decoder(ce)
 	w.WriteHeader(statusCode)
 

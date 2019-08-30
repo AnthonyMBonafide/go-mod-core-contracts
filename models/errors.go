@@ -78,8 +78,13 @@ func Kind(err error) Code {
 	if !errors.As(err, &e) {
 		return KindUnknown
 	}
+	// We want to return the first "Kind" we see that isn't Unknown, because
+	// the higher in the stack the Kind was specified the more context we had.
+	if e.Kind != KindUnknown || e.err == nil {
+		return e.Kind
+	}
 
-	return e.Kind
+	return Kind(e.err)
 }
 
 // Error creates an error message taking all nested and wrapped errors into account.

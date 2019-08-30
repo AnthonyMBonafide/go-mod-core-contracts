@@ -136,7 +136,7 @@ func (v *valueDescriptorRestClient) ValueDescriptorsByUomLabel(uomLabel string, 
 func (v *valueDescriptorRestClient) ValueDescriptorsUsage(names []string, ctx context.Context) (map[string]bool, error) {
 	u, err := url.Parse(v.url + "/usage")
 	if err != nil {
-		return nil, err
+		return nil, models.NewCommonEdgexError(models.KindCommunicationError, "Invalid URL for usage API", err)
 	}
 
 	q := u.Query()
@@ -144,7 +144,7 @@ func (v *valueDescriptorRestClient) ValueDescriptorsUsage(names []string, ctx co
 	u.RawQuery = q.Encode()
 	data, err := clients.GetRequest(u.String(), ctx)
 	if err != nil {
-		return nil, err
+		return nil, models.NewCommonEdgexError(models.KindCommunicationError, "Received a response error", err)
 	}
 
 	resp := []map[string]bool{}
@@ -152,7 +152,7 @@ func (v *valueDescriptorRestClient) ValueDescriptorsUsage(names []string, ctx co
 
 	// Flatmap the original response to a data structure which is more useful.
 	usage := flattenValueDescriptorUsage(resp)
-	return usage, err
+	return usage, models.NewCommonEdgexError(models.KindCommunicationError, "Unable to marshal response", err)
 }
 
 func (v *valueDescriptorRestClient) Add(vdr *models.ValueDescriptor, ctx context.Context) (string, error) {
